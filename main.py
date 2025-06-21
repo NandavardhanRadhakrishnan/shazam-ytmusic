@@ -70,16 +70,23 @@ def upload_zip():
 
         # Extract songs
         raw_songs = []
-        for item in history.values():
-            if isinstance(item, dict) and "track" in item:
-                track = item["track"]
-                title = track.get("title")
-                artist = track.get("subtitle")
-                if title and artist:
-                    raw_songs.append(f"{title} - {artist}")
+        for item in history["shazam_matches"]:
+            title = None
+            artist = None
+            if item.keys().__contains__("metadata"):
+                metadata = item.get("metadata")
+                if metadata:
+                    title = metadata.get("title")
+                    artist = metadata.get("artist")
+                    artist = artist or " "
+            elif item.keys().__contains__("attributes"):
+                attributes = item.get("attributes")
+                if attributes:
+                    title = attributes.get("title")
+                    artist = attributes.get("primaryArtist")
+            if title and artist:
+                raw_songs.append(f"{title} - {artist}")
         raw_songs = list(set(raw_songs))  # dedupe
-
-        print(f"🔎 Total unique songs extracted: {len(raw_songs)}")
 
         # Get or create playlist
         playlist_title = "Shazam Playlist"
