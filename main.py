@@ -22,10 +22,13 @@ except Exception as e:
 
 
 def get_or_create_playlist(ytmusic, title):
-    playlists = ytmusic.get_library_playlists()
+    playlists = ytmusic.get_library_playlists(limit=100)
     for pl in playlists:
-        if pl['title'].lower() == title.lower():
+        if pl['title'].strip().lower() == title.strip().lower():
+            print(
+                f"Found existing playlist: {pl['title']} ({pl['playlistId']})")
             return pl['playlistId']
+    print(f"Creating new playlist: {title}")
     return ytmusic.create_playlist(title, "Auto-imported from Shazam")
 
 
