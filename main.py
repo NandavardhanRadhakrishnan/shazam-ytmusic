@@ -8,6 +8,9 @@ from ytmusicapi import YTMusic
 
 app = Flask(__name__)
 
+# Path to the secret headers_auth.json file (Render mounts this automatically)
+HEADERS_FILE = "/run/secrets/ytmusic_headers"
+
 
 def get_or_create_playlist(ytmusic, title):
     playlists = ytmusic.get_library_playlists()
@@ -19,18 +22,17 @@ def get_or_create_playlist(ytmusic, title):
 
 @app.route("/upload", methods=["POST"])
 def upload_zip():
-    if 'file' not in request.files or 'headers_auth_json' not in request.form:
-        return jsonify({"error": "Both .zip file and headers_auth_json are required"}), 400
+    if 'file' not in request.files:
+        return jsonify({"error": "ZIP file is required"}), 400
 
     file = request.files['file']
     if not file.filename.endswith(".zip"):
         return jsonify({"error": "Only .zip files are accepted"}), 400
 
     try:
-        headers = json.loads(request.form['headers_auth_json'])
-        ytmusic = YTMusic(headers)
+        ytmusic = YTMusic(HEADERS_FILE)
     except Exception as e:
-        return jsonify({"error": f"Invalid auth headers: {str(e)}"}), 400
+        return jsonify({"error": f"Failed to initialize YTMusic: {str(e)}"}), 500
 
     with tempfile.TemporaryDirectory() as temp_dir:
         zip_path = os.path.join(temp_dir, "db.zip")
@@ -92,7 +94,6 @@ def upload_zip():
                 if title and artist and video_id:
                     if (title, artist) not in existing_titles:
                         to_add.append(video_id)
-                        # Avoid local dupes
                         existing_titles.add((title, artist))
                         added += 1
 
