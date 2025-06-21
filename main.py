@@ -8,18 +8,6 @@ from ytmusicapi import YTMusic
 
 app = Flask(__name__)
 
-# Path to the secret headers_auth.json file (Render mounts this automatically)
-HEADERS_FILE = "/etc/secrets/ytmusic_headers"
-
-try:
-    with open(HEADERS_FILE, "r") as f:
-        headers = json.load(f)
-        print("=== DEBUG: headers_auth.json contents ===")
-        print(json.dumps(headers, indent=2))
-except Exception as e:
-    print("Failed to read or parse headers_auth.json:", e)
-    raise
-
 
 def get_or_create_playlist(ytmusic, title):
     playlists = ytmusic.get_library_playlists()
@@ -33,17 +21,18 @@ def get_or_create_playlist(ytmusic, title):
 
 @app.route("/upload", methods=["POST"])
 def upload_zip():
-    if 'file' not in request.files:
-        return jsonify({"error": "ZIP file is required"}), 400
+    if 'file' not in request.files or 'headers_file' not in request.files:
+        return jsonify({"error": "Both .zip file and headers_file are required"}), 400
 
     file = request.files['file']
     if not file.filename.endswith(".zip"):
         return jsonify({"error": "Only .zip files are accepted"}), 400
 
     try:
-        ytmusic = YTMusic(HEADERS_FILE)
+        headers = json.load(request.files['headers_file'])
+        ytmusic = YTMusic(headers)
     except Exception as e:
-        return jsonify({"error": f"Failed to initialize YTMusic: {str(e)}"}), 500
+        return jsonify({"error": f"Invalid auth headers: {str(e)}"}), 400
 
     with tempfile.TemporaryDirectory() as temp_dir:
         zip_path = os.path.join(temp_dir, "db.zip")
@@ -73,38 +62,36 @@ def upload_zip():
         for item in history["shazam_matches"]:
             title = None
             artist = None
-            if item.keys().__contains__("metadata"):
+            if item.get("metadata"):
                 metadata = item.get("metadata")
-                if metadata:
-                    title = metadata.get("title")
-                    artist = metadata.get("artist")
-                    artist = artist or " "
-            elif item.keys().__contains__("attributes"):
+                title = metadata.get("title")
+                artist = metadata.get("artist", " ")
+            elif item.get("attributes"):
                 attributes = item.get("attributes")
-                if attributes:
-                    title = attributes.get("title")
-                    artist = attributes.get("primaryArtist")
+                title = attributes.get("title")
+                artist = attributes.get("primaryArtist")
             if title and artist:
                 raw_songs.append(f"{title} - {artist}")
-        raw_songs = list(set(raw_songs))  # dedupe
+        raw_songs = list(set(raw_songs))
 
         # Get or create playlist
         playlist_title = "Shazam Playlist"
         playlist_id = get_or_create_playlist(ytmusic, playlist_title)
 
-        # Get existing songs in the playlist
-        existing = ytmusic.get_playlist(playlist_id, limit=1000)
+        # Get existing songs
+        existing = ytmusic.get_playlist(playlist_id, limit=2000)
         existing_titles = {
             (track['title'].strip().lower(),
              track['artists'][0]['name'].strip().lower())
             for track in existing['tracks']
         }
 
-        print(f"📦 Existing tracks in playlist: {len(existing_titles)}")
-
-        # Search and add new songs
         added = 0
         to_add = []
+        added_songs = []
+        skipped_songs = []
+        failed_matches = []
+
         for song in raw_songs:
             print(f"🔍 Searching: {song}")
             res = ytmusic.search(song, filter="songs")
@@ -120,20 +107,32 @@ def upload_zip():
                     if key not in existing_titles:
                         print(f"✅ Adding: {title} - {artist}")
                         to_add.append(video_id)
+                        added_songs.append(f"{title} - {artist}")
                         existing_titles.add(key)
                         added += 1
                     else:
+                        skipped_songs.append(f"{title} - {artist}")
                         print(f"⏩ Skipped (duplicate): {title} - {artist}")
                 else:
+                    failed_matches.append(song)
                     print("⚠️ Incomplete track data, skipped.")
             else:
+                failed_matches.append(song)
                 print(f"❌ No match found for: {song}")
 
         if to_add:
-            print(f"📝 Adding {len(to_add)} new tracks to playlist...")
             ytmusic.add_playlist_items(playlist_id, to_add)
 
-        return jsonify({"status": "success", "songs_added": added, "playlist_id": playlist_id})
+        return jsonify({
+            "status": "success",
+            "playlist_id": playlist_id,
+            "songs_added": added,
+            "total_extracted": len(raw_songs),
+            "existing_count": len(existing_titles),
+            "added_songs": added_songs,
+            "skipped_songs": skipped_songs,
+            "failed_matches": failed_matches
+        })
 
 
 @app.route("/", methods=["GET"])
