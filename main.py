@@ -22,13 +22,12 @@ except Exception as e:
 
 
 def get_or_create_playlist(ytmusic, title):
-    playlists = ytmusic.get_library_playlists(limit=100)
+    playlists = ytmusic.get_library_playlists()
     for pl in playlists:
         if pl['title'].strip().lower() == title.strip().lower():
-            print(
-                f"Found existing playlist: {pl['title']} ({pl['playlistId']})")
+            print(f"✅ Found existing playlist: {title}")
             return pl['playlistId']
-    print(f"Creating new playlist: {title}")
+    print(f"📁 Creating new playlist: {title}")
     return ytmusic.create_playlist(title, "Auto-imported from Shazam")
 
 
@@ -80,21 +79,27 @@ def upload_zip():
                     raw_songs.append(f"{title} - {artist}")
         raw_songs = list(set(raw_songs))  # dedupe
 
+        print(f"🔎 Total unique songs extracted: {len(raw_songs)}")
+
         # Get or create playlist
         playlist_title = "Shazam Playlist"
         playlist_id = get_or_create_playlist(ytmusic, playlist_title)
 
-        # Get existing songs to avoid duplicates
+        # Get existing songs in the playlist
         existing = ytmusic.get_playlist(playlist_id, limit=1000)
         existing_titles = {
-            (track['title'].strip(), track['artists'][0]['name'].strip())
+            (track['title'].strip().lower(),
+             track['artists'][0]['name'].strip().lower())
             for track in existing['tracks']
         }
+
+        print(f"📦 Existing tracks in playlist: {len(existing_titles)}")
 
         # Search and add new songs
         added = 0
         to_add = []
         for song in raw_songs:
+            print(f"🔍 Searching: {song}")
             res = ytmusic.search(song, filter="songs")
             if res:
                 track = res[0]
@@ -103,13 +108,22 @@ def upload_zip():
                 artist = artists[0]['name'].strip() if artists else ''
                 video_id = track.get("videoId")
 
+                key = (title.lower(), artist.lower())
                 if title and artist and video_id:
-                    if (title, artist) not in existing_titles:
+                    if key not in existing_titles:
+                        print(f"✅ Adding: {title} - {artist}")
                         to_add.append(video_id)
-                        existing_titles.add((title, artist))
+                        existing_titles.add(key)
                         added += 1
+                    else:
+                        print(f"⏩ Skipped (duplicate): {title} - {artist}")
+                else:
+                    print("⚠️ Incomplete track data, skipped.")
+            else:
+                print(f"❌ No match found for: {song}")
 
         if to_add:
+            print(f"📝 Adding {len(to_add)} new tracks to playlist...")
             ytmusic.add_playlist_items(playlist_id, to_add)
 
         return jsonify({"status": "success", "songs_added": added, "playlist_id": playlist_id})
