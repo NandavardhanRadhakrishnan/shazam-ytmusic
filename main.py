@@ -9,7 +9,16 @@ from ytmusicapi import YTMusic
 app = Flask(__name__)
 
 # Path to the secret headers_auth.json file (Render mounts this automatically)
-HEADERS_FILE = "/etc/secrets/ytmusic_headers"
+HEADERS_FILE = "./etc/secrets/ytmusic_headers"
+
+try:
+    with open(HEADERS_FILE, "r") as f:
+        headers = json.load(f)
+        print("=== DEBUG: headers_auth.json contents ===")
+        print(json.dumps(headers, indent=2))
+except Exception as e:
+    print("Failed to read or parse headers_auth.json:", e)
+    raise
 
 
 def get_or_create_playlist(ytmusic, title):
